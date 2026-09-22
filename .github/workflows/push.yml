@@ -1,4 +1,4 @@
-name: Build and Push Qwen-Image-2.1 GGUF to Replicate
+name: Build and Push Qwen-Image-2.1 Native to Replicate
 
 on:
   push:
@@ -7,7 +7,6 @@ on:
     paths:
       - "cog.yaml"
       - "predict.py"
-      - "workflow_api.json"
   workflow_dispatch:
 
 jobs:
@@ -29,9 +28,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-v2-${{ hashFiles('cog.yaml') }}
+          key: ${{ runner.os }}-buildx-v3-${{ hashFiles('cog.yaml') }}
           restore-keys: |
-            ${{ runner.os }}-buildx-v2-
+            ${{ runner.os }}-buildx-v3-
 
       - name: Setup Cog
         uses: replicate/setup-cog@v2
