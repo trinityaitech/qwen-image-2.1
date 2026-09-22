@@ -1,4 +1,4 @@
-name: Build and Push Qwen-Image to Replicate
+name: Build and Push Qwen-Image-2.1 GGUF to Replicate
 
 on:
   push:

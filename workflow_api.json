@@ -51,10 +51,22 @@
       "prompt": "Keep the character and pose in <image1> unchanged, put this light blue denim shirt from <image2> on the character.",
       "negative_prompt": "",
       "resolution": 1024,
-      "clip": ["2", 0],
-      "vae": ["3", 0],
-      "image_1": ["4", 0],
-      "image_2": ["5", 0]
+      "clip": [
+        "2",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ],
+      "image_1": [
+        "4",
+        0
+      ],
+      "image_2": [
+        "5",
+        0
+      ]
     },
     "class_type": "TextEncodeQwenImage21",
     "_meta": {
@@ -65,7 +77,10 @@
     "inputs": {
       "device": "auto",
       "dtype": "default",
-      "model": ["1", 0]
+      "model": [
+        "1",
+        0
+      ]
     },
     "class_type": "QwenImage21Cache",
     "_meta": {
@@ -80,10 +95,22 @@
       "sampler_name": "euler",
       "scheduler": "simple",
       "denoise": 1.0,
-      "model": ["7", 0],
-      "positive": ["6", 0],
-      "negative": ["6", 1],
-      "latent_image": ["6", 2]
+      "model": [
+        "7",
+        0
+      ],
+      "positive": [
+        "6",
+        0
+      ],
+      "negative": [
+        "6",
+        1
+      ],
+      "latent_image": [
+        "6",
+        2
+      ]
     },
     "class_type": "KSampler",
     "_meta": {
@@ -92,8 +119,14 @@
   },
   "9": {
     "inputs": {
-      "samples": ["8", 0],
-      "vae": ["3", 0]
+      "samples": [
+        "8",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
     },
     "class_type": "VAEDecode",
     "_meta": {
@@ -103,7 +136,10 @@
   "10": {
     "inputs": {
       "filename_prefix": "qwen_image_output",
-      "images": ["9", 0]
+      "images": [
+        "9",
+        0
+      ]
     },
     "class_type": "SaveImage",
     "_meta": {

@@ -14,7 +14,7 @@ import websocket
 COMFY_HOST = "127.0.0.1:8188"
 COMFY_PYTHON = "/root/comfy_env/bin/python"
 
-# Asset Paths & URLs
+# Model Asset URLs & Target Paths
 GGUF_URL = "https://huggingface.co/Abiray/Qwen-Image-2.1-GGUF/resolve/main/qwen_image_2.1_Q6_K.gguf"
 GGUF_PATH = (
     "/root/ComfyUI/models/diffusion_models/qwen_image_2.1_Q6_K.gguf"
@@ -44,49 +44,37 @@ class Output(BaseModel):
 
 class Predictor(BasePredictor):
 
+  def download_with_pget(
+      self, url: str, dest: str, min_bytes: int, label: str
+  ):
+    """Downloads model weights in parallel using pget with wget fallback."""
+    if not os.path.exists(dest) or os.path.getsize(dest) < min_bytes:
+      print(f"Downloading {label}...")
+      cmd = (
+          ["pget", url, dest]
+          if shutil.which("pget")
+          else ["wget", "-c", "--progress=dot:giga", url, "-O", dest]
+      )
+      subprocess.run(cmd, check=True)
+
   def setup(self):
-    """Downloads Qwen-Image-2.1 checkpoints dynamically and boots isolated ComfyUI server."""
+    """Downloads checkpoints dynamically and boots isolated ComfyUI server."""
     os.makedirs(os.path.dirname(GGUF_PATH), exist_ok=True)
     os.makedirs(os.path.dirname(TEXT_ENC_PATH), exist_ok=True)
     os.makedirs(os.path.dirname(VAE_PATH), exist_ok=True)
     os.makedirs("/root/ComfyUI/input", exist_ok=True)
     os.makedirs("/root/ComfyUI/output", exist_ok=True)
 
-    # 1. Download GGUF Diffusion Model (~5.88 GB)
-    if not os.path.exists(GGUF_PATH) or os.path.getsize(GGUF_PATH) < 5_000_000_000:
-      print("Downloading Qwen-Image-2.1 GGUF Model (~5.88 GB)...")
-      subprocess.run(
-          ["wget", "-c", "--progress=dot:giga", GGUF_URL, "-O", GGUF_PATH],
-          check=True,
-      )
+    # 1. Download weights using parallel pget
+    self.download_with_pget(
+        GGUF_URL, GGUF_PATH, 5_000_000_000, "Qwen Q6_K GGUF (~5.88 GB)"
+    )
+    self.download_with_pget(
+        TEXT_ENC_URL, TEXT_ENC_PATH, 7_000_000_000, "Text Encoder (~8.71 GB)"
+    )
+    self.download_with_pget(VAE_URL, VAE_PATH, 500_000_000, "VAE (~644 MB)")
 
-    # 2. Download Text Encoder (~8.71 GB)
-    if (
-        not os.path.exists(TEXT_ENC_PATH)
-        or os.path.getsize(TEXT_ENC_PATH) < 7_000_000_000
-    ):
-      print("Downloading Qwen-Image-2.1 Text Encoder (~8.71 GB)...")
-      subprocess.run(
-          [
-              "wget",
-              "-c",
-              "--progress=dot:giga",
-              TEXT_ENC_URL,
-              "-O",
-              TEXT_ENC_PATH,
-          ],
-          check=True,
-      )
-
-    # 3. Download VAE (~644 MB)
-    if not os.path.exists(VAE_PATH) or os.path.getsize(VAE_PATH) < 500_000_000:
-      print("Downloading Qwen-Image-2.1 VAE (~644 MB)...")
-      subprocess.run(
-          ["wget", "-c", "--progress=dot:giga", VAE_URL, "-O", VAE_PATH],
-          check=True,
-      )
-
-    # 4. Start ComfyUI Studio server in isolated virtualenv
+    # 2. Boot ComfyUI server
     print("Starting ComfyUI server in isolated virtualenv...")
     cmd = [
         COMFY_PYTHON,
@@ -118,7 +106,7 @@ class Predictor(BasePredictor):
 
     if not ready:
       raise RuntimeError("ComfyUI failed to start within 60 seconds.")
-    print("ComfyUI Studio server is online.")
+    print("ComfyUI server is online and ready.")
 
   def predict(
       self,
@@ -168,7 +156,6 @@ class Predictor(BasePredictor):
           default=-1,
       ),
   ) -> Output:
-    """Executes Qwen-Image-2.1 image editing workflow."""
     if seed < 0:
       seed = random.randint(0, 2**32 - 1)
     print(f"Executing Qwen-Image-2.1 run with seed: {seed}")
@@ -189,7 +176,6 @@ class Predictor(BasePredictor):
       shutil.copyfile(str(reference_image), ref_dest)
       prompt["5"]["inputs"]["image"] = ref_filename
     else:
-      # If no reference image provided, disconnect image_2 and drop node 5
       if "image_2" in prompt["6"]["inputs"]:
         del prompt["6"]["inputs"]["image_2"]
       if "5" in prompt:
@@ -198,7 +184,6 @@ class Predictor(BasePredictor):
     # 3. Inject User Parameters into Native Nodes
     prompt["6"]["inputs"]["prompt"] = prompt_text
     prompt["6"]["inputs"]["resolution"] = resolution
-
     prompt["8"]["inputs"]["seed"] = seed
     prompt["8"]["inputs"]["steps"] = steps
     prompt["8"]["inputs"]["cfg"] = cfg
@@ -211,22 +196,44 @@ class Predictor(BasePredictor):
     p = {"prompt": prompt, "client_id": client_id}
     data = json.dumps(p).encode("utf-8")
     req = urllib.request.Request(f"http://{COMFY_HOST}/prompt", data=data)
-    response = json.loads(urllib.request.urlopen(req).read())
-    prompt_id = response["prompt_id"]
 
+    try:
+      response = json.loads(urllib.request.urlopen(req).read())
+      prompt_id = response["prompt_id"]
+      print(f"Workflow queued with prompt_id: {prompt_id}")
+    except Exception as e:
+      ws.close()
+      raise RuntimeError(f"Failed to submit workflow to ComfyUI: {e}")
+
+    # 5. Monitor execution with error handling & node logging
     while True:
       out = ws.recv()
       if isinstance(out, str):
         message = json.loads(out)
-        if message["type"] == "executing":
-          data = message["data"]
-          if data["node"] is None and data["prompt_id"] == prompt_id:
+        msg_type = message.get("type")
+        msg_data = message.get("data", {})
+
+        if msg_type == "execution_error":
+          ws.close()
+          raise RuntimeError(
+              f"ComfyUI Execution Error: {json.dumps(msg_data, indent=2)}"
+          )
+
+        if msg_type == "executing":
+          node = msg_data.get("node")
+          current_prompt_id = msg_data.get("prompt_id")
+
+          if node is not None:
+            print(f"Executing ComfyUI node: {node}...")
+
+          if node is None and current_prompt_id == prompt_id:
+            print("ComfyUI workflow finished execution successfully.")
             break
       else:
         continue
     ws.close()
 
-    # 5. Retrieve Generated Image Output
+    # 6. Retrieve Generated Image
     output_root = "/root/ComfyUI/output"
     found_images = []
 

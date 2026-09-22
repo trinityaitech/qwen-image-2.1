@@ -13,13 +13,25 @@ build:
     - "websocket-client"
     - "requests"
   run:
+    # 1. Install Replicate's high-speed parallel downloader
+    - "curl -o /usr/local/bin/pget -L \"https://github.com/replicate/pget/releases/latest/download/pget_$(uname -s)_$(uname -m)\" && chmod +x /usr/local/bin/pget"
+    
+    # 2. Setup isolated virtualenv for ComfyUI (protects Cog's Pydantic v1)
     - "python -m venv /root/comfy_env"
     - "/root/comfy_env/bin/pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121"
+    
+    # 3. Clone ComfyUI and install core requirements
     - "git clone https://github.com/comfyanonymous/ComfyUI.git /root/ComfyUI"
     - "/root/comfy_env/bin/pip install --no-cache-dir -r /root/ComfyUI/requirements.txt"
+    
+    # 4. Clone ComfyUI-GGUF custom node
     - "mkdir -p /root/ComfyUI/custom_nodes"
     - "git clone https://github.com/city96/ComfyUI-GGUF.git /root/ComfyUI/custom_nodes/ComfyUI-GGUF"
-    - "/root/comfy_env/bin/pip install --no-cache-dir websocket-client requests pillow safetensors accelerate einops sentencepiece"
-    - "mkdir -p /root/ComfyUI/models/diffusion_models /root/ComfyUI/models/text_encoders /root/ComfyUI/models/vae /root/ComfyUI/input"
+    
+    # 5. Install required libraries INCLUDING gguf inside isolated environment
+    - "/root/comfy_env/bin/pip install --no-cache-dir websocket-client requests pillow safetensors accelerate einops sentencepiece gguf"
+    
+    # 6. Create model weight directories
+    - "mkdir -p /root/ComfyUI/models/diffusion_models /root/ComfyUI/models/text_encoders /root/ComfyUI/models/vae /root/ComfyUI/input /root/ComfyUI/output"
 
 predict: "predict.py:Predictor"
